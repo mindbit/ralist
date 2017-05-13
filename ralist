@@ -67,6 +67,16 @@ class Arlist {
             ($m & $x ? ($s ? $chr[0] : 'x') : ($s ? $chr[1] : '-'));
     }
 
+    public static function major($dev)
+    {
+        return $dev >> 8;
+    }
+
+    public static function minor($dev)
+    {
+        return $dev & 0xff;
+    }
+
     public function __construct($path)
     {
         $this->cachePath = $path . '/.arlist.cache';
@@ -115,10 +125,15 @@ class Arlist {
     protected function emit($stat, $name, $link)
     {
         $link = $link === null ? '' : ' -> ' . $link;
-        printf("%s %d %5d %5d %10d %s %s\n",
+        $size = $stat['size'];
+        $type = $stat['mode'] & S_IFMT;
+        if ($type == S_IFCHR || $type == S_IFBLK)
+            $size = sprintf('%d, %d',
+                self::major($stat['rdev']), self::minor($stat['rdev']));
+        printf("%s %d %5d %5d %10s %s %s\n",
             self::getType($stat['mode']),
             $stat['nlink'],
-            $stat['uid'], $stat['gid'], $stat['size'],
+            $stat['uid'], $stat['gid'], $size,
             gmdate('Y-m-d H:i:s', $stat['mtime']),
             $name . $link);
     }
