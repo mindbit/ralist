@@ -52,6 +52,19 @@ class Arlist {
         S_IFIFO     => 'f'
     );
 
+    protected static $archMap = array(
+        '.tar.gz'   => array('xTar', '-z'),
+        '.tgz'      => array('xTar', '-z'),
+        '.tar.bz2'  => array('xTar', '-j'),
+        '.tbz2'     => array('xTar', '-j'),
+        '.tar.xz'   => array('xTar', '-J'),
+        '.txz'      => array('xTar', '-J'),
+        '.tar'      => array('xTar'),
+        '.iso'      => array('x7za'),
+        '.7z'       => array('x7za'),
+        '.zip'      => array('x7za'),
+    );
+
     public static function getType($m)
     {
         return (self::$typeMap[$m & S_IFMT] ?: '?') .
@@ -104,6 +117,7 @@ class Arlist {
             if ($path == $this->cachePath || $path == $this->outPath)
                 continue;
 
+            $idxSub = $idxPath . $item . '/';
             $stat = lstat($path);
             $type = $stat['mode'] & S_IFMT;
 
@@ -113,13 +127,31 @@ class Arlist {
             $this->emit($stat, $idxPath . $item, $link);
 
             if ($type == S_IFDIR) {
-                $this->recurseIntoDir($path, $idxPath . $item . '/');
+                $this->recurseIntoDir($path, $idxSub);
                 continue;
             }
 
             if ($type != S_IFREG)
                 continue;
+
+            foreach (self::$archMap as $ext => $args) {
+                if (substr($item, -strlen($ext)) !== $ext)
+                    continue;
+
+                $this->recurseIntoArchive($path, $idxSub, $args);
+                break;
+            }
         }
+    }
+
+    protected function recurseIntoArchive($fsPath, $idxPath, $args)
+    {
+        $method = array_shift($args);
+        $tmp = exec('mktemp -d');
+        array_unshift($args, $fsPath, $tmp);
+        call_user_func_array(array($this, $method), $args);
+        $this->recurseIntoDir($tmp, $idxPath);
+        exec(sprintf('rm -rf %s', escapeshellarg($tmp)));
     }
 
     protected function emit($stat, $name, $link)
@@ -138,6 +170,45 @@ class Arlist {
             $name . $link);
     }
 
+    protected function x7za($src, $dst)
+    {
+        $src = realpath($src);
+        $tmp = exec('mktemp');
+        $cmd = sprintf('7za x -o%s %s &> %s',
+            escapeshellarg($dst),
+            escapeshellarg($src),
+            escapeshellarg($tmp)
+        );
+        exec($cmd, $out, $ret);
+        if ($ret) {
+            $err = sprintf(
+                'Bad exit status %d extracting %s - log in %s',
+                $ret, $src, $tmp
+            );
+            throw new Exception($err);
+        }
+        unlink($tmp);
+    }
+
+    protected function xTar($src, $dst, $filter = '')
+    {
+        $tmp = exec('mktemp');
+        $cmd = sprintf('tar --numeric-owner %s -xf %s -C %s &> %s',
+            $filter,
+            escapeshellarg($src),
+            escapeshellarg($dst),
+            escapeshellarg($tmp)
+        );
+        exec($cmd, $out, $ret);
+        if ($ret) {
+            $err = sprintf(
+                'Bad exit status %d extracting %s - log in %s',
+                $ret, $src, $tmp
+            );
+            throw new Exception($err);
+        }
+        unlink($tmp);
+    }
 }
 
 if ($_SERVER['argc'] <= 1) {
